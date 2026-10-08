@@ -1,0 +1,18 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs'); const vm=require('node:vm');
+const box={module:{exports:{}}};vm.runInNewContext(fs.readFileSync('public/recommendation.js','utf8'),box);const E=box.module.exports;
+const dog=id=>E.catalog.find(b=>b.id===id);
+const good={0:[3],1:[1],2:[0],3:[0],4:[4],5:[2],6:[3],7:[3],8:[1],9:[0],10:[2],11:[2]};
+test('22 unique active breeds including dachshund and westie',()=>{assert.equal(E.catalog.length,22);assert.equal(new Set(E.catalog.map(b=>b.id)).size,22);assert.ok(dog('dachshund'));assert.ok(dog('westie'));assert.equal(Object.values(E.config.weights).reduce((a,b)=>a+b),100)});
+test('every active entry has notes, provenance and dedicated image',()=>{for(const b of E.catalog){assert.ok(b.care.length>=2);assert.match(b.source,/^https:/);assert.equal(b.image,`/pets/${b.id}.png`);if(!b.variable)for(const k of E.dimensions)assert.ok(b[k]>=1&&b[k]<=5)}});
+test('more exercise capacity cannot lower exercise score',()=>{for(const b of E.catalog.filter(b=>!b.variable)){let prev=-1;for(let i=0;i<5;i++){const r=E.evaluate({...good,4:[i]},b);assert.ok(r.parts.exercise>=prev);prev=r.parts.exercise}}});
+test('long absence cannot be hidden by high other scores',()=>{for(const b of E.catalog.filter(b=>!b.variable)){const r=E.evaluate({...good,2:[4]},b);assert.equal(r.level,'high');assert.ok(r.risks.some(x=>x.key==='alone'&&x.severe))}});
+test('training and noise answers alter relevant dimensions',()=>{const low=E.evaluate({...good,10:[0],11:[0]},dog('husky'));const high=E.evaluate(good,dog('husky'));assert.ok(low.parts.training<high.parts.training);assert.ok(low.parts.noise<high.parts.noise);assert.ok(low.risks.some(r=>r.key==='noise'))});
+test('unknown new answers excluded rather than interpreted as fit',()=>{const r=E.evaluate({...good,10:[3],11:[3]},dog('bichon'));assert.equal(r.parts.training,undefined);assert.equal(r.parts.noise,undefined);assert.equal(r.coverage,90)});
+test('short nose warning always visible and limits good grade',()=>{for(const id of ['pug','french']){const r=E.evaluate(good,dog(id));assert.notEqual(r.level,'good');assert.ok(r.risks.some(x=>x.key==='breathing'))}});
+test('native group receives no invented score or fixed traits',()=>{const r=E.evaluate(good,dog('native'));assert.equal(r.score,null);assert.equal(r.level,'individual');assert.equal(r.reasonDetails.length,0);assert.ok(E.dimensions.every(k=>dog('native')[k]===null))});
+test('recommendations deterministic and limited to active catalog',()=>{const a=E.recommend(good);assert.equal(a.length,22);assert.equal(a.at(-1).id,'native');assert.equal(JSON.stringify(a),JSON.stringify(E.recommend(good)));assert.ok(a.some(r=>r.id==='dachshund'));assert.ok(a.some(r=>r.id==='westie'))});
+test('missing core answers never receives a confident match',()=>{for(const b of E.catalog.filter(b=>!b.variable))assert.equal(E.evaluate({},b).level,'unknown')});
+test('low shedding with low grooming capacity retains care challenge',()=>{const r=E.evaluate({...good,6:[0],7:[0]},dog('bichon'));assert.equal(r.parts.shedding,100);assert.ok(r.risks.some(x=>x.key==='grooming'))});
+test('all active and archived pets have separate alpha PNGs',()=>{for(const b of [...E.catalog,...E.archived]){const bytes=fs.readFileSync('public'+b.image);assert.equal(bytes.subarray(1,4).toString(),'PNG');assert.equal(bytes[25],6,b.id+' must be RGBA');}});
